@@ -183,8 +183,11 @@ class NowPlayingTrack {
   Future<void> resolveImage() async {
     if (imageNeedsResolving && !hasImage) {
       _resolutionState = _NowPlayingImageResolutionState.resolving;
-      this.image = await NowPlaying.instance.resolver.resolve(this);
-      _resolutionState = _NowPlayingImageResolutionState.resolved;
+      final resolver = NowPlaying.instance.resolver;
+      if (resolver != null) {
+        this.image = await NowPlaying.instance.resolver!.resolve(this);
+        _resolutionState = _NowPlayingImageResolutionState.resolved;
+      }
     }
   }
 }

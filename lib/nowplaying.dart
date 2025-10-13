@@ -204,7 +204,7 @@ class NowPlaying with WidgetsBindingObserver {
   /// Restart timer if resumed; else cancel it
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      if (isIOS) _refreshTimer ??= Timer.periodic(_refreshPeriod, _refresh);
+      _refreshTimer ??= Timer.periodic(_refreshPeriod, _refresh);
       _refresh();
     } else {
       _refreshTimer?.cancel();

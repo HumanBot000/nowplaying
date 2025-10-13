@@ -103,7 +103,7 @@ public class NowPlayingPlugin implements FlutterPlugin, MethodCallHandler, Activ
     changeBroadcastReceiver = new ChangeBroadcastReceiver();
     IntentFilter intentFilter = new IntentFilter();
     intentFilter.addAction(NowPlayingPlugin.ACTION);
-    context.registerReceiver(changeBroadcastReceiver, intentFilter);
+    context.registerReceiver(changeBroadcastReceiver, intentFilter, Context.RECEIVER_EXPORTED);
   }
 
   private void detach() {
