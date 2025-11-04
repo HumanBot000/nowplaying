@@ -18,6 +18,8 @@ import android.media.session.MediaController;
 import android.media.session.MediaSession;
 import android.media.session.PlaybackState;
 import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.Settings;
 import android.text.TextUtils;
 import io.flutter.embedding.engine.plugins.activity.ActivityAware;
@@ -31,8 +33,6 @@ import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
-
-// import android.util.Log;
 
 /** NowPlayingPlugin */
 public class NowPlayingPlugin implements FlutterPlugin, MethodCallHandler, ActivityAware {
@@ -52,6 +52,9 @@ public class NowPlayingPlugin implements FlutterPlugin, MethodCallHandler, Activ
   private static final int STATE_STOPPED = 2;
   private static final int STATE_UNKNOWN = -1;
 
+  private static final int MAX_SAME_STATE_COUNT = 10;
+  private static final int POLLING_INTERVAL_MS = 500;
+
   /// The MethodChannel that will the communication between Flutter and native
   /// Android
   ///
@@ -62,6 +65,8 @@ public class NowPlayingPlugin implements FlutterPlugin, MethodCallHandler, Activ
   private ChangeBroadcastReceiver changeBroadcastReceiver;
   private Context context;
   private Map<String, Object> trackData = new HashMap<>();
+  private final Handler mainHandler = new Handler(Looper.getMainLooper());
+  private Thread pollingThread;
 
   @Override
   public void onMethodCall(@NonNull MethodCall call, @NonNull Result result) {
@@ -112,6 +117,7 @@ public class NowPlayingPlugin implements FlutterPlugin, MethodCallHandler, Activ
   }
 
   private void detach() {
+    stopPolling();
     if (context != null)
       context.unregisterReceiver(changeBroadcastReceiver);
     context = null;
@@ -140,20 +146,59 @@ public class NowPlayingPlugin implements FlutterPlugin, MethodCallHandler, Activ
   public class ChangeBroadcastReceiver extends BroadcastReceiver {
     @Override
     public void onReceive(Context context, Intent intent) {
-      if (context != null) {
-        final String action = intent.getStringExtra(NowPlayingListenerService.FIELD_ACTION);
-        final Icon icon = (Icon) intent.getParcelableExtra(NowPlayingListenerService.FIELD_ICON);
-        final MediaSession.Token token =
-          (MediaSession.Token) intent.getParcelableExtra(NowPlayingListenerService.FIELD_TOKEN);
+      if (context == null) return;
 
-        if (NowPlayingListenerService.ACTION_POSTED.equals(action)) {
-          final Map<String, Object> data = extractFieldsFor(token, icon);
-          if (data != null) sendTrack(data);
-        } else if (NowPlayingListenerService.ACTION_REMOVED.equals(action)) {
-          finishPlaying(token);
-        }
+      final String action = intent.getStringExtra(NowPlayingListenerService.FIELD_ACTION);
+      final Icon icon = intent.getParcelableExtra(NowPlayingListenerService.FIELD_ICON);
+      final MediaSession.Token token = intent.getParcelableExtra(NowPlayingListenerService.FIELD_TOKEN);
+
+      if (NowPlayingListenerService.ACTION_POSTED.equals(action)) {
+        startPolling(token, icon);
+      } else if (NowPlayingListenerService.ACTION_REMOVED.equals(action)) {
+        stopPolling();
+        finishPlaying(token);
       }
     }
+  }
+
+  /**
+   * Start polling for updates in between notifications
+   * This is needed to catch playback state changes that do not trigger a new notification
+   */
+  private void startPolling(MediaSession.Token token, Icon icon) {
+    stopPolling();
+    pollingThread = new Thread(() -> {
+      int sameStateCount = 0;
+      Integer lastState = null;
+      while (!Thread.currentThread().isInterrupted()) {
+        Map<String, Object> data = extractFieldsFor(token, icon);
+        if (data != null) {
+          mainHandler.post(() -> sendTrack(data));
+          Integer currentState = (Integer) data.get("state");
+          if (currentState != null && currentState.equals(lastState)) {
+            if (++sameStateCount >= MAX_SAME_STATE_COUNT) {
+              break;
+            }
+          } else {
+            lastState = currentState;
+            sameStateCount = 1;
+          }
+        } else {
+          lastState = null;
+          sameStateCount = 0;
+        }
+        try {
+          Thread.sleep(POLLING_INTERVAL_MS);
+        } catch (InterruptedException e) {
+          break;
+        }
+      }
+    });
+    pollingThread.start();
+  }
+
+  private void stopPolling() {
+    if (pollingThread != null) pollingThread.interrupt();
   }
 
   void finishPlaying(MediaSession.Token token) {
@@ -272,6 +317,7 @@ public class NowPlayingPlugin implements FlutterPlugin, MethodCallHandler, Activ
 
   @Override
   public void onDetachedFromEngine(@NonNull FlutterPluginBinding binding) {
+    stopPolling();
     channel.setMethodCallHandler(null);
     if (context != null)
       context.unregisterReceiver(changeBroadcastReceiver);
