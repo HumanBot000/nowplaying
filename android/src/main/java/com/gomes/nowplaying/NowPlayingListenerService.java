@@ -36,8 +36,21 @@ public class NowPlayingListenerService extends NotificationListenerService {
     public static final String FIELD_ICON = "com.gomes.nowplaying.icon";
     public static final String ACTION_POSTED = "posted";
     public static final String ACTION_REMOVED = "removed";
+    public static final String ACTION_REQUEST_UPDATE = "com.gomes.nowplaying.REQUEST_UPDATE";
 
     private Map<String, MediaSession.Token> tokens = new HashMap<>();
+
+    @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        if (intent != null && ACTION_REQUEST_UPDATE.equals(intent.getAction())) {
+            SbnAndToken sbnAndToken = findTokenForState();
+            if (sbnAndToken != null) {
+                tokens.put(sbnAndToken.sbn.getKey(), sbnAndToken.token);
+                sendData(sbnAndToken.token, sbnAndToken.sbn, ACTION_POSTED);
+            }
+        }
+        return super.onStartCommand(intent, flags, startId);
+    }
 
     @Override
     public void onListenerConnected() {

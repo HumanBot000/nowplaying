@@ -77,7 +77,11 @@ public class NowPlayingPlugin implements FlutterPlugin, MethodCallHandler, Activ
       result.success(isEnabled);
     } else if (COMMAND_REQUEST_PERMISSIONS.equals(call.method)) {
       final boolean isEnabled = isNotificationListenerServiceEnabled();
-      if (!isEnabled) context.startActivity(new Intent(ACTION_NOTIFICATION_LISTENER_SETTINGS));
+      if (!isEnabled) {
+        context.startActivity(new Intent(ACTION_NOTIFICATION_LISTENER_SETTINGS));
+      } else {
+        requestServiceUpdate();
+      }
       result.success(true);
     } else {
       result.notImplemented();
@@ -114,6 +118,13 @@ public class NowPlayingPlugin implements FlutterPlugin, MethodCallHandler, Activ
     } else {
       context.registerReceiver(changeBroadcastReceiver, intentFilter);
     }
+    requestServiceUpdate();
+  }
+
+  private void requestServiceUpdate() {
+    Intent intent = new Intent(context, NowPlayingListenerService.class);
+    intent.setAction(NowPlayingListenerService.ACTION_REQUEST_UPDATE);
+    context.startService(intent);
   }
 
   private void detach() {
