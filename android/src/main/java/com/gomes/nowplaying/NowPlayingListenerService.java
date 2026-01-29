@@ -8,6 +8,7 @@ import android.media.session.PlaybackState;
 import android.os.Bundle;
 import android.service.notification.NotificationListenerService;
 import android.service.notification.StatusBarNotification;
+import android.util.Log;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -31,6 +32,8 @@ import java.util.Map;
  * SOFTWARE.
  */
 public class NowPlayingListenerService extends NotificationListenerService {
+    private static final String TAG = "NowPlayingService";
+
     public static final String FIELD_ACTION = "com.gomes.nowplaying.action";
     public static final String FIELD_TOKEN = "com.gomes.nowplaying.token";
     public static final String FIELD_ICON = "com.gomes.nowplaying.icon";
@@ -39,22 +42,43 @@ public class NowPlayingListenerService extends NotificationListenerService {
     public static final String ACTION_REQUEST_UPDATE = "com.gomes.nowplaying.REQUEST_UPDATE";
 
     private Map<String, MediaSession.Token> tokens = new HashMap<>();
+    private boolean isConnected = false;
+
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        Log.d(TAG, "NowPlayingListenerService created");
+    }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        Log.d(TAG, "onStartCommand called with action: " +
+                (intent != null ? intent.getAction() : "null"));
+
         if (intent != null && ACTION_REQUEST_UPDATE.equals(intent.getAction())) {
-            SbnAndToken sbnAndToken = findTokenForState();
-            if (sbnAndToken != null) {
-                tokens.put(sbnAndToken.sbn.getKey(), sbnAndToken.token);
-                sendData(sbnAndToken.token, sbnAndToken.sbn, ACTION_POSTED);
+            if (isConnected) {
+                SbnAndToken sbnAndToken = findTokenForState();
+                if (sbnAndToken != null) {
+                    tokens.put(sbnAndToken.sbn.getKey(), sbnAndToken.token);
+                    sendData(sbnAndToken.token, sbnAndToken.sbn, ACTION_POSTED);
+                } else {
+                    Log.d(TAG, "No active notification found for update request");
+                }
+            } else {
+                Log.w(TAG, "Service not connected yet, cannot fulfill update request");
             }
         }
-        return super.onStartCommand(intent, flags, startId);
+        // Return START_STICKY to ensure service restarts if killed
+        return START_STICKY;
     }
 
     @Override
     public void onListenerConnected() {
         super.onListenerConnected();
+        isConnected = true;
+        Log.d(TAG, "NotificationListenerService connected");
+
+        // Send initial state when connected
         SbnAndToken sbnAndToken = findTokenForState();
         if (sbnAndToken != null) {
             tokens.put(sbnAndToken.sbn.getKey(), sbnAndToken.token);
@@ -62,29 +86,62 @@ public class NowPlayingListenerService extends NotificationListenerService {
         }
     }
 
+    @Override
+    public void onListenerDisconnected() {
+        super.onListenerDisconnected();
+        isConnected = false;
+        Log.w(TAG, "NotificationListenerService disconnected");
+        // Clear tokens when disconnected
+        tokens.clear();
+    }
+
     private SbnAndToken findTokenForState() {
         SbnAndToken playingToken = null;
         SbnAndToken pausedToken = null;
 
-        for (StatusBarNotification sbn : this.getActiveNotifications()) {
-            final MediaSession.Token token = getTokenIfAvailable(sbn);
-            if (token != null) {
-                final MediaController controller = new MediaController(this, token);
-                final int playbackState = controller.getPlaybackState().getState();
-                if (playbackState == PlaybackState.STATE_PLAYING)
-                    playingToken = new SbnAndToken(sbn, token);
-                if (playbackState == PlaybackState.STATE_PAUSED)
-                    pausedToken = new SbnAndToken(sbn, token);
+        try {
+            StatusBarNotification[] notifications = this.getActiveNotifications();
+            if (notifications == null) {
+                Log.d(TAG, "No active notifications available");
+                return null;
             }
+
+            for (StatusBarNotification sbn : notifications) {
+                final MediaSession.Token token = getTokenIfAvailable(sbn);
+                if (token != null) {
+                    try {
+                        final MediaController controller = new MediaController(this, token);
+                        final PlaybackState playbackState = controller.getPlaybackState();
+                        if (playbackState != null) {
+                            final int state = playbackState.getState();
+                            if (state == PlaybackState.STATE_PLAYING) {
+                                playingToken = new SbnAndToken(sbn, token);
+                            } else if (state == PlaybackState.STATE_PAUSED) {
+                                pausedToken = new SbnAndToken(sbn, token);
+                            }
+                        }
+                    } catch (Exception e) {
+                        Log.e(TAG, "Error accessing media controller", e);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error finding token for state", e);
         }
 
-        if (playingToken != null)
+        if (playingToken != null) {
             return playingToken;
+        }
         return pausedToken; // may also be null
     }
 
     @Override
     public void onNotificationPosted(StatusBarNotification sbn) {
+        if (!isConnected) {
+            Log.w(TAG, "Notification posted but service not connected");
+            return;
+        }
+
         final MediaSession.Token token = getTokenIfAvailable(sbn);
         if (token != null) {
             tokens.put(sbn.getKey(), token);
@@ -94,23 +151,46 @@ public class NowPlayingListenerService extends NotificationListenerService {
 
     @Override
     public void onNotificationRemoved(StatusBarNotification sbn) {
+        if (!isConnected) {
+            return;
+        }
+
         final MediaSession.Token token = tokens.remove(sbn.getKey());
-        if (token != null)
+        if (token != null) {
             sendData(token, sbn, ACTION_REMOVED);
+        }
     }
 
     private void sendData(MediaSession.Token token, StatusBarNotification sbn, String action) {
-        final Intent intent = new Intent(NowPlayingPlugin.ACTION);
-        intent.putExtra(FIELD_ACTION, action);
-        intent.putExtra(FIELD_TOKEN, token);
-        intent.putExtra(FIELD_ICON, sbn.getNotification().getSmallIcon());
-        sendBroadcast(intent);
+        try {
+            final Intent intent = new Intent(NowPlayingPlugin.ACTION);
+            intent.putExtra(FIELD_ACTION, action);
+            intent.putExtra(FIELD_TOKEN, token);
+            intent.putExtra(FIELD_ICON, sbn.getNotification().getSmallIcon());
+            sendBroadcast(intent);
+            Log.d(TAG, "Broadcast sent: " + action);
+        } catch (Exception e) {
+            Log.e(TAG, "Error sending broadcast", e);
+        }
     }
 
     private MediaSession.Token getTokenIfAvailable(StatusBarNotification sbn) {
-        final Notification notif = sbn.getNotification();
-        final Bundle bundle = notif.extras;
-        return (MediaSession.Token) bundle.getParcelable("android.mediaSession");
+        try {
+            final Notification notif = sbn.getNotification();
+            final Bundle bundle = notif.extras;
+            return (MediaSession.Token) bundle.getParcelable("android.mediaSession");
+        } catch (Exception e) {
+            Log.e(TAG, "Error getting token from notification", e);
+            return null;
+        }
+    }
+
+    @Override
+    public void onDestroy() {
+        Log.d(TAG, "NowPlayingListenerService destroyed");
+        tokens.clear();
+        isConnected = false;
+        super.onDestroy();
     }
 
     private class SbnAndToken {
