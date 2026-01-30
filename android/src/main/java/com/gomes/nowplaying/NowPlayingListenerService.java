@@ -1,10 +1,13 @@
 package com.gomes.nowplaying;
 
 import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
 import android.content.Intent;
 import android.media.session.MediaController;
 import android.media.session.MediaSession;
 import android.media.session.PlaybackState;
+import android.os.Build;
 import android.os.Bundle;
 import android.service.notification.NotificationListenerService;
 import android.service.notification.StatusBarNotification;
@@ -47,6 +50,21 @@ public class NowPlayingListenerService extends NotificationListenerService {
     @Override
     public void onCreate() {
         super.onCreate();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            final String CHANNEL_ID = "nowplaying_service_channel";
+            NotificationChannel channel = new NotificationChannel(CHANNEL_ID,
+                    "Now Playing Service",
+                    NotificationManager.IMPORTANCE_DEFAULT);
+
+            ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).createNotificationChannel(channel);
+
+            Notification notification = new Notification.Builder(this, CHANNEL_ID)
+                    .setContentTitle("Now Playing")
+                    .setContentText("Monitoring for media updates")
+                    .build();
+
+            startForeground(1, notification);
+        }
         Log.d(TAG, "NowPlayingListenerService created");
     }
 
