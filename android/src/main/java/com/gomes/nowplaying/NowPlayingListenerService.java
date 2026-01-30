@@ -65,7 +65,7 @@ public class NowPlayingListenerService extends NotificationListenerService {
                     .build();
 
             // For Android 14+ (API 34+), specify the foreground service type
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            if (Build.VERSION.SDK_INT >= 34) {
                 startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
             } else {
                 startForeground(1, notification);
