@@ -44,6 +44,7 @@
 
         <service android:name="com.gomes.nowplaying.NowPlayingListenerService"
             android:exported="true"
+            android:foregroundServiceType="dataSync"
             android:label="NowPlayingListenerService"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
             <intent-filter>

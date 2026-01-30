@@ -4,6 +4,7 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.content.Intent;
+import android.content.pm.ServiceInfo;
 import android.media.session.MediaController;
 import android.media.session.MediaSession;
 import android.media.session.PlaybackState;
@@ -63,7 +64,12 @@ public class NowPlayingListenerService extends NotificationListenerService {
                     .setContentText("Monitoring for media updates")
                     .build();
 
-            startForeground(1, notification);
+            // For Android 14+ (API 34+), specify the foreground service type
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
+            } else {
+                startForeground(1, notification);
+            }
         }
         Log.d(TAG, "NowPlayingListenerService created");
     }
